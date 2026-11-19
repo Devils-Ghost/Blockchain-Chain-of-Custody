@@ -35,6 +35,10 @@ type CustodyTransfer struct {
 
 
 func (c *ChainOfCustodyContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
+	now, err := txTime(ctx)
+	if err != nil {
+		return err
+	}
 	evidences := []Evidence{
 		{
 			ID:          "EV001",
@@ -42,8 +46,8 @@ func (c *ChainOfCustodyContract) InitLedger(ctx contractapi.TransactionContextIn
 			Owner:       "Officer Smith",
 			Location:    "Evidence Locker A1",
 			Status:      "Collected",
-			CreatedAt:   time.Now().Format(time.RFC3339),
-			UpdatedAt:   time.Now().Format(time.RFC3339),
+			CreatedAt:   now,
+			UpdatedAt:   now,
 			Tags:        []string{"sample", "test"},
 		},
 	}
@@ -84,14 +88,19 @@ func (c *ChainOfCustodyContract) CreateEvidence(ctx contractapi.TransactionConte
         return err
     }
 
+    now, err := txTime(ctx)
+    if err != nil {
+        return err
+    }
+
     evidence := Evidence{
         ID:          id,
         Description: description,
         Owner:       owner,
         Location:    location,
         Status:      "Collected",
-        CreatedAt:   time.Now().Format(time.RFC3339),
-        UpdatedAt:   time.Now().Format(time.RFC3339),
+        CreatedAt:   now,
+        UpdatedAt:   now,
         Tags:        tags,
     }
 
@@ -135,7 +144,10 @@ func (c *ChainOfCustodyContract) UpdateEvidence(ctx contractapi.TransactionConte
 	evidence.Description = description
 	evidence.Location = location
 	evidence.Status = status
-	evidence.UpdatedAt = time.Now().Format(time.RFC3339)
+	evidence.UpdatedAt, err = txTime(ctx)
+	if err != nil {
+		return err
+	}
 
 	evidenceJSON, err := json.Marshal(evidence)
 	if err != nil {
@@ -143,6 +155,17 @@ func (c *ChainOfCustodyContract) UpdateEvidence(ctx contractapi.TransactionConte
 	}
 
 	return ctx.GetStub().PutState(id, evidenceJSON)
+}
+
+// txTime returns the transaction's client-set timestamp in RFC3339. Every endorsing peer
+// reads the same value, unlike time.Now(), which differs per peer and can make the
+// endorsements of a multi-org transaction disagree.
+func txTime(ctx contractapi.TransactionContextInterface) (string, error) {
+	ts, err := ctx.GetStub().GetTxTimestamp()
+	if err != nil {
+		return "", fmt.Errorf("failed to read transaction timestamp: %v", err)
+	}
+	return time.Unix(ts.Seconds, int64(ts.Nanos)).UTC().Format(time.RFC3339), nil
 }
 
 // callerIdentity returns the submitting client's verified identity as "<MSP ID>:<certificate CN>".
@@ -175,11 +198,16 @@ func (c *ChainOfCustodyContract) TransferCustody(ctx contractapi.TransactionCont
 		return err
 	}
 
+	now, err := txTime(ctx)
+	if err != nil {
+		return err
+	}
+
 	transfer := CustodyTransfer{
 		EvidenceID:   id,
 		FromOwner:    evidence.Owner,
 		ToOwner:      newOwner,
-		Timestamp:    time.Now().Format(time.RFC3339),
+		Timestamp:    now,
 		Reason:       reason,
 		TransferredBy: transferredBy,
 	}
@@ -189,14 +217,15 @@ func (c *ChainOfCustodyContract) TransferCustody(ctx contractapi.TransactionCont
 		return err
 	}
 
-	transferKey := fmt.Sprintf("TRANSFER_%s_%s", id, transfer.Timestamp)
+	// The transaction ID keeps two transfers of one item in the same second from colliding.
+	transferKey := fmt.Sprintf("TRANSFER_%s_%s", id, ctx.GetStub().GetTxID())
 	err = ctx.GetStub().PutState(transferKey, transferJSON)
 	if err != nil {
 		return err
 	}
 
 	evidence.Owner = newOwner
-	evidence.UpdatedAt = time.Now().Format(time.RFC3339)
+	evidence.UpdatedAt = now
 
 	evidenceJSON, err := json.Marshal(evidence)
 	if err != nil {
