@@ -257,8 +257,8 @@ class ChainOfCustodyClient:
         ev_id = input("ID: ").strip()
         new_owner = input("New Owner: ").strip()
         reason = input("Reason: ").strip()
-        by_whom = input("Transferred By: ").strip()
-        result = self.invoke_transaction("TransferCustody", [ev_id, new_owner, reason, by_whom])
+        # Transferred By is recorded by the chaincode from this user's certificate.
+        result = self.invoke_transaction("TransferCustody", [ev_id, new_owner, reason])
         print("Transferred!" if result["success"] else f"Failed: {result['error']}")
 
     def get_history(self):

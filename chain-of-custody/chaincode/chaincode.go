@@ -145,8 +145,32 @@ func (c *ChainOfCustodyContract) UpdateEvidence(ctx contractapi.TransactionConte
 	return ctx.GetStub().PutState(id, evidenceJSON)
 }
 
-func (c *ChainOfCustodyContract) TransferCustody(ctx contractapi.TransactionContextInterface, id string, newOwner string, reason string, transferredBy string) error {
+// callerIdentity returns the submitting client's verified identity as "<MSP ID>:<certificate CN>".
+// Fabric checks the client's signature against its MSP before the chaincode runs, so this
+// value cannot be forged by the caller, unlike a name passed in as an argument.
+func callerIdentity(ctx contractapi.TransactionContextInterface) (string, error) {
+	clientID := ctx.GetClientIdentity()
+	mspID, err := clientID.GetMSPID()
+	if err != nil {
+		return "", fmt.Errorf("failed to read caller MSP ID: %v", err)
+	}
+	cert, err := clientID.GetX509Certificate()
+	if err != nil {
+		return "", fmt.Errorf("failed to read caller certificate: %v", err)
+	}
+	if cert == nil || cert.Subject.CommonName == "" {
+		return "", fmt.Errorf("caller certificate has no common name")
+	}
+	return mspID + ":" + cert.Subject.CommonName, nil
+}
+
+func (c *ChainOfCustodyContract) TransferCustody(ctx contractapi.TransactionContextInterface, id string, newOwner string, reason string) error {
 	evidence, err := c.ReadEvidence(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	transferredBy, err := callerIdentity(ctx)
 	if err != nil {
 		return err
 	}
